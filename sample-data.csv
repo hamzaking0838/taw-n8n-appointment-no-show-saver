@@ -1,0 +1,4 @@
+
+appointment_id,patient_id,patient_name,phone,appointment_date,appointment_time,status,timezone,consent_status
+APT-SAMPLE-001,P001,Test Patient,+923000000001,2026-11-05,10:00,Scheduled,Asia/Karachi,Opted-In
+APT-SAMPLE-002,P002,Demo Patient,+923000000002,2026-11-06,11:00,Scheduled,Asia/Karachi,Opted-In
