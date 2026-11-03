@@ -1,0 +1,5119 @@
+{
+  "name": "Appointment No-Show Saver",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "appointment-new",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "479fb501-3462-4afe-94f6-2b91e8b72b72",
+      "name": "New Appointment Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "52b9a573-71aa-4536-b065-6618bca9f56b"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const b = $json.body || {};\nconst s = (v) => (v === undefined || v === null) ? '' : String(v).trim();\nconst TZ = 'Asia/Karachi';\nconst OFFSET = '+05:00';\nconst toKarachi = (ms) => new Date(ms + 5 * 3600000).toISOString().slice(0, 19) + OFFSET;\nconst errors = [];\nconst patient_id = s(b.patient_id);\nconst patient_name = s(b.patient_name);\nconst phone = s(b.phone).replace(/[\\s()-]/g, '');\nlet dt = s(b.appointment_datetime);\n\nif (!patient_id) errors.push('patient_id is required');\nif (!patient_name) errors.push('patient_name is required');\nif (!/^\\+[1-9]\\d{7,14}$/.test(phone)) errors.push('phone must be in E.164 format, e.g. +15555550101');\nif (s(b.timezone) && s(b.timezone) !== TZ) errors.push('timezone must be Asia/Karachi (or omitted)');\n\n// A datetime without an offset is read as clinic time (Asia/Karachi, +05:00).\nif (dt && !/(Z|[+-]\\d{2}:\\d{2})$/.test(dt)) dt = dt + OFFSET;\nconst isoRe = /^(\\d{4}-\\d{2}-\\d{2})T(\\d{2}:\\d{2})(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}:\\d{2})$/;\nlet normalized = '';\nif (!isoRe.test(dt)) {\n  errors.push('appointment_datetime must be ISO 8601, e.g. 2026-11-02T09:30:00+05:00 (no offset = Asia/Karachi)');\n} else {\n  const t = Date.parse(dt);\n  if (isNaN(t)) errors.push('appointment_datetime is not a valid date');\n  else if (t <= Date.now()) errors.push('appointment_datetime must be in the future');\n  else normalized = toKarachi(t);\n}\n\nconst c = b.sms_consent ?? b.consent_status;\nconst consentGiven = c === true || ['true', 'yes', 'y', '1', 'opted-in'].includes(String(c).trim().toLowerCase());\nconst nowK = toKarachi(Date.now());\nconst appointment_id = s(b.appointment_id) || (patient_id + '-' + normalized.replace(/[^0-9]/g, '').slice(0, 12));\n\nreturn {\n  json: {\n    valid: errors.length === 0,\n    errors,\n    appointment_id,\n    patient_id,\n    patient_name,\n    phone,\n    appointment_date: normalized.slice(0, 10),\n    appointment_time: normalized.slice(11, 16),\n    appointment_datetime: normalized,\n    timezone: TZ,\n    status: 'Scheduled',\n    consent_status: consentGiven ? 'Opted-In' : 'No-Consent',\n    consent_at: consentGiven ? nowK : '',\n    last_updated: nowK,\n  },\n};"
+      },
+      "id": "c0fdf745-fcdc-466a-b5e6-a4c423a66274",
+      "name": "Validate Appointment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "valid",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e44a1ae4-b66e-46a8-bab8-c0a0b6306849",
+      "name": "Is Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        480,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Appointments"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "appointment_id",
+              "lookupValue": "={{ $(\"Validate Appointment\").item.json.appointment_id }}"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "id": "8d9edc8a-81e4-497d-b2ef-6ba341445fcc",
+      "name": "Check Duplicate Appointment",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        704,
+        256
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "exists",
+              "leftValue": "={{ $json.appointment_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fec67ccb-b511-4869-b362-32e30bc90fcc",
+      "name": "Already Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        928,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, duplicate: true, appointment_id: $json.appointment_id, message: \"Appointment already exists, ignored\" }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "c5dd9c0f-fd1b-475f-870e-a84c0a2ba5f2",
+      "name": "Respond Duplicate Ignored",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1152,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "appointment_duplicate_ignored",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "info",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "Appointment already exists; nothing written",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e9ac58d7-f3d8-4dab-9371-2a6918525c93",
+      "name": "Log Duplicate Appointment",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1600,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.setZone(\"Asia/Karachi\").toISO() }}",
+            "execution_id": "={{ $execution.id }}",
+            "event": "={{ $json.event }}",
+            "severity": "={{ $json.severity }}",
+            "appointment_id": "={{ $json.appointment_id }}",
+            "detail": "={{ $json.detail }}"
+          },
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "execution_id",
+              "displayName": "execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "event",
+              "displayName": "event",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "severity",
+              "displayName": "severity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_id",
+              "displayName": "appointment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "ddc7eb28-b570-43ab-9784-64ca51df374d",
+      "name": "Write Log (Intake)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1824,
+        352
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Appointments"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "appointment_id"
+          ],
+          "value": {
+            "appointment_id": "={{ $(\"Validate Appointment\").item.json.appointment_id }}",
+            "patient_id": "={{ $(\"Validate Appointment\").item.json.patient_id }}",
+            "patient_name": "={{ $(\"Validate Appointment\").item.json.patient_name }}",
+            "phone": "={{ $(\"Validate Appointment\").item.json.phone }}",
+            "appointment_date": "={{ $(\"Validate Appointment\").item.json.appointment_date }}",
+            "appointment_time": "={{ $(\"Validate Appointment\").item.json.appointment_time }}",
+            "appointment_datetime": "={{ $(\"Validate Appointment\").item.json.appointment_datetime }}",
+            "timezone": "={{ $(\"Validate Appointment\").item.json.timezone }}",
+            "status": "Scheduled",
+            "consent_status": "={{ $(\"Validate Appointment\").item.json.consent_status }}",
+            "consent_at": "={{ $(\"Validate Appointment\").item.json.consent_at }}",
+            "check_in_at": "",
+            "reminder_state": "",
+            "reminder_attempts": "0",
+            "reminder_sent_at": "",
+            "rebook_state": "",
+            "rebook_attempts": "0",
+            "rebook_sent_at": "",
+            "last_sms_sid": "",
+            "last_updated": "={{ $(\"Validate Appointment\").item.json.last_updated }}"
+          },
+          "schema": [
+            {
+              "id": "appointment_id",
+              "displayName": "appointment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "patient_id",
+              "displayName": "patient_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "patient_name",
+              "displayName": "patient_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_date",
+              "displayName": "appointment_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_time",
+              "displayName": "appointment_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_datetime",
+              "displayName": "appointment_datetime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "timezone",
+              "displayName": "timezone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_status",
+              "displayName": "consent_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_at",
+              "displayName": "consent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "check_in_at",
+              "displayName": "check_in_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_state",
+              "displayName": "reminder_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_attempts",
+              "displayName": "reminder_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_sent_at",
+              "displayName": "reminder_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_state",
+              "displayName": "rebook_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_attempts",
+              "displayName": "rebook_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_sent_at",
+              "displayName": "rebook_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_sms_sid",
+              "displayName": "last_sms_sid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_updated",
+              "displayName": "last_updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "2c749334-8b7c-4de2-a9f9-aba4a1925f30",
+      "name": "Save Appointment",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1152,
+        352
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, duplicate: false, appointment_id: $(\"Validate Appointment\").item.json.appointment_id, status: \"Scheduled\", consent_status: $(\"Validate Appointment\").item.json.consent_status }) }}",
+        "options": {
+          "responseCode": 201
+        }
+      },
+      "id": "33b51694-54a3-4831-94b9-c8ba237961b8",
+      "name": "Respond 201 Created",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1376,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "appointment_created",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "info",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $(\"Validate Appointment\").item.json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ \"Saved. consent=\" + $(\"Validate Appointment\").item.json.consent_status }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9d1ecf86-3983-4ddf-b685-53e9efacd171",
+      "name": "Log Appointment Created",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1600,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"ok\":false,\"error\":\"Could not save appointment. Please retry.\"}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "41e385e8-065e-4432-8b46-f10c9f325444",
+      "name": "Respond 500 Save Failed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1376,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "appointment_save_failed",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $(\"Validate Appointment\").item.json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ \"Google Sheets save failed: \" + JSON.stringify($json.error || {}).slice(0, 300) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "76dcd53d-894f-4f26-b5da-82082c77bb4f",
+      "name": "Log Appointment Save Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1600,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "hamzaking0838@gmail.com",
+        "subject": "={{ \"[No-Show Saver] \" + $json.event }}",
+        "emailType": "text",
+        "message": "={{ $json.event + \" (\" + $json.severity + \")\\nAppointment: \" + $json.appointment_id + \"\\n\" + $json.detail + \"\\nExecution: \" + $execution.id }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "1bd88135-6cf5-4a71-b201-d074273d8272",
+      "name": "Email Alert (Intake)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1824,
+        640
+      ],
+      "webhookId": "6243ffb8-4fc4-4dca-af07-ee590b5686a9",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "WeBXVnyAseBLjZ7m",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, errors: $json.errors }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "89d5737c-336d-4ecc-b939-8b20ce84623d",
+      "name": "Respond 400 Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        704,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "appointment_rejected",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "warning",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ JSON.stringify($json.errors) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "379f13cb-7266-4558-a19b-a83b51fd7bdc",
+      "name": "Log Appointment Rejected",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1600,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "appointment-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f10b79cf-434e-4aa1-abff-335e6e3a02a6",
+      "name": "Appointment Status Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        224
+      ],
+      "webhookId": "d15cc5ed-f777-4aa1-9b85-1fb88b9e4d27"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const b = $json.body || {};\nconst errors = [];\nconst appointment_id = String(b.appointment_id || '').trim();\nconst map = { cancelled: 'Cancelled', canceled: 'Cancelled', 'checked-in': 'Checked-In', checkedin: 'Checked-In', completed: 'Completed' };\nconst status = map[String(b.status || '').trim().toLowerCase()];\nif (!appointment_id) errors.push('appointment_id is required');\nif (!status) errors.push('status must be one of: Cancelled, Checked-In, Completed');\nconst nowK = new Date(Date.now() + 5 * 3600000).toISOString().slice(0, 19) + '+05:00';\nreturn {\n  json: {\n    valid: errors.length === 0,\n    errors,\n    appointment_id,\n    status: status || '',\n    check_in_at: status === 'Checked-In' ? nowK : '',\n    last_updated: nowK,\n  },\n};"
+      },
+      "id": "bf0f53dc-0c5c-4376-899a-e6f7bb638678",
+      "name": "Validate Status Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "valid",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "324713cb-82ba-43e6-b597-b14feb590b8c",
+      "name": "Is Status Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        496,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Appointments"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "appointment_id",
+              "lookupValue": "={{ $(\"Validate Status Update\").item.json.appointment_id }}"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "id": "bfcb7390-2c59-45c5-b6a1-36c87653867e",
+      "name": "Find Appointment",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        720,
+        544
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "found",
+              "leftValue": "={{ $json.appointment_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "85fa1168-c62f-4b7b-a2b2-82d7bbdd908f",
+      "name": "Appointment Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        944,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Appointments"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "appointment_id"
+          ],
+          "value": {
+            "appointment_id": "={{ $(\"Validate Status Update\").item.json.appointment_id }}",
+            "status": "={{ $(\"Validate Status Update\").item.json.status }}",
+            "check_in_at": "={{ $(\"Validate Status Update\").item.json.check_in_at || $json.check_in_at || \"\" }}",
+            "last_updated": "={{ $(\"Validate Status Update\").item.json.last_updated }}"
+          },
+          "schema": [
+            {
+              "id": "appointment_id",
+              "displayName": "appointment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "patient_id",
+              "displayName": "patient_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "patient_name",
+              "displayName": "patient_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_date",
+              "displayName": "appointment_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_time",
+              "displayName": "appointment_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_datetime",
+              "displayName": "appointment_datetime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "timezone",
+              "displayName": "timezone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_status",
+              "displayName": "consent_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_at",
+              "displayName": "consent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "check_in_at",
+              "displayName": "check_in_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_state",
+              "displayName": "reminder_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_attempts",
+              "displayName": "reminder_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_sent_at",
+              "displayName": "reminder_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_state",
+              "displayName": "rebook_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_attempts",
+              "displayName": "rebook_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_sent_at",
+              "displayName": "rebook_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_sms_sid",
+              "displayName": "last_sms_sid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_updated",
+              "displayName": "last_updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "96ee809e-da04-45e8-bfd0-f3854ff338c9",
+      "name": "Update Status in Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1168,
+        448
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, appointment_id: $(\"Validate Status Update\").item.json.appointment_id, status: $(\"Validate Status Update\").item.json.status }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "2c1ef4b1-2c8c-448a-9b2c-15a34457ea1e",
+      "name": "Respond 200 Status Updated",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1392,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "status_updated",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "info",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $(\"Validate Status Update\").item.json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ \"New status: \" + $(\"Validate Status Update\").item.json.status }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "61962637-9132-43fa-ac32-32630edcef2d",
+      "name": "Log Status Updated",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1616,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.setZone(\"Asia/Karachi\").toISO() }}",
+            "execution_id": "={{ $execution.id }}",
+            "event": "={{ $json.event }}",
+            "severity": "={{ $json.severity }}",
+            "appointment_id": "={{ $json.appointment_id }}",
+            "detail": "={{ $json.detail }}"
+          },
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "execution_id",
+              "displayName": "execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "event",
+              "displayName": "event",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "severity",
+              "displayName": "severity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_id",
+              "displayName": "appointment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "4136971b-5d3e-41e8-8f5f-d4b920c569aa",
+      "name": "Write Log (Status)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1840,
+        448
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"ok\":false,\"error\":\"Could not update status. Please retry.\"}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "8795fb8a-37af-46b7-89ec-5f2798843d7d",
+      "name": "Respond 500 Update Failed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1392,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "status_update_failed",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $(\"Validate Status Update\").item.json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ \"Google Sheets update failed: \" + JSON.stringify($json.error || {}).slice(0, 300) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7b49a762-cef0-4e93-aee5-00d54b7bee9e",
+      "name": "Log Status Update Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1616,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "hamzaking0838@gmail.com",
+        "subject": "={{ \"[No-Show Saver] \" + $json.event }}",
+        "emailType": "text",
+        "message": "={{ $json.event + \" (\" + $json.severity + \")\\nAppointment: \" + $json.appointment_id + \"\\n\" + $json.detail + \"\\nExecution: \" + $execution.id }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "e73fe1a1-7fc7-47bc-9234-16424a59f3b6",
+      "name": "Email Alert (Status)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1840,
+        688
+      ],
+      "webhookId": "601ac451-9156-46d7-8b0d-9aec6ab1c2c1",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "WeBXVnyAseBLjZ7m",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: \"Appointment not found\", appointment_id: $(\"Validate Status Update\").item.json.appointment_id }) }}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "id": "4c985856-4a99-49ee-97f0-68c4bba55300",
+      "name": "Respond 404 Not Found",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1168,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "status_appointment_not_found",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "warning",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $(\"Validate Status Update\").item.json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "Status update for unknown appointment",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5784bcae-93b9-49f6-a6f1-ca4299a267d9",
+      "name": "Log Status Not Found",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1616,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, errors: $json.errors }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "e588a4b1-4dd7-4094-bb38-37228a362280",
+      "name": "Respond 400 Invalid Status",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        720,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "status_rejected",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "warning",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ JSON.stringify($json.errors) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0742ab9b-3879-4057-b8ba-fb3156b7bb63",
+      "name": "Log Status Rejected",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1616,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sms-inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "4162885e-b8fe-4e6f-887a-286ff9f8eb2f",
+      "name": "SMS Reply Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        640
+      ],
+      "webhookId": "68ab5a5a-0d6c-4891-bc05-c2c718ca8995"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const b = $json.body || $json;\nconst from = String(b.From || b.phone || '').trim();\nconst raw = String(b.Body || b.message || '').trim();\n\nconst kw = raw.toUpperCase().replace(/[^A-Z]/g, '');\nconst OPT_OUT = ['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'REVOKE', 'OPTOUT'];\nconst OPT_IN = ['START', 'UNSTOP'];\n\nconst nowK = new Date(Date.now() + 5 * 3600000).toISOString().slice(0, 19) + '+05:00';\nconst phoneOk = /^\\+[1-9]\\d{7,14}$/.test(from);\n\nconst esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nlet consent_status = '';\nlet reply = '';\n\nif (phoneOk && OPT_OUT.includes(kw)) {\n  consent_status = 'Opted-Out';\n  reply = 'You have been unsubscribed and will receive no more appointment messages. Reply START to resubscribe.';\n} else if (phoneOk && OPT_IN.includes(kw)) {\n  consent_status = 'Opted-In';\n  reply = 'You are resubscribed to appointment messages. Reply STOP at any time to opt out.';\n} else if (kw === 'HELP') {\n  reply = 'Appointment reminders from your clinic. Reply STOP to opt out, START to resubscribe. Call the clinic for help.';\n}\n\nreturn {\n  json: {\n    phone: from,\n    keyword: kw.slice(0, 20),\n    consent_status,\n    updated_at: nowK,\n    source: 'sms-reply',\n    reply_xml: reply ? '<Response><Message>' + esc(reply) + '</Message></Response>' : '<Response></Response>',\n  },\n};"
+      },
+      "id": "7643bd1d-3c92-4e1c-a878-ff5700994d00",
+      "name": "Parse Inbound SMS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "kw",
+              "leftValue": "={{ $json.consent_status }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "43ad9ce9-1e09-4d4b-b165-fe49c1de6976",
+      "name": "Is Opt-Out or Opt-In?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        496,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Consent"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "phone"
+          ],
+          "value": {
+            "phone": "={{ $json.phone }}",
+            "consent_status": "={{ $json.consent_status }}",
+            "updated_at": "={{ $json.updated_at }}",
+            "source": "={{ $json.source }}",
+            "keyword": "={{ $json.keyword }}"
+          },
+          "schema": [
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "consent_status",
+              "displayName": "consent_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "keyword",
+              "displayName": "keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "a612275d-91ea-4346-be9d-6607a2d69f06",
+      "name": "Save Consent Change",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        720,
+        768
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $(\"Parse Inbound SMS\").item.json.reply_xml }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/xml"
+              }
+            ]
+          }
+        }
+      },
+      "id": "82d2c9d9-62c1-4e0f-a607-ff5ca2f77132",
+      "name": "Respond Reply",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        944,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "={{ $(\"Parse Inbound SMS\").item.json.consent_status ? \"consent_\" + $(\"Parse Inbound SMS\").item.json.consent_status : \"sms_reply_ignored\" }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "info",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ \"keyword=\" + $(\"Parse Inbound SMS\").item.json.keyword + \" phone=***\" + String($(\"Parse Inbound SMS\").item.json.phone).slice(-4) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "88c25154-7361-471a-aec4-6a0d46bf0b03",
+      "name": "Log SMS Reply",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1168,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.setZone(\"Asia/Karachi\").toISO() }}",
+            "execution_id": "={{ $execution.id }}",
+            "event": "={{ $json.event }}",
+            "severity": "={{ $json.severity }}",
+            "appointment_id": "={{ $json.appointment_id }}",
+            "detail": "={{ $json.detail }}"
+          },
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "execution_id",
+              "displayName": "execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "event",
+              "displayName": "event",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "severity",
+              "displayName": "severity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_id",
+              "displayName": "appointment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "f52b0209-da82-4088-b5e9-754569ab5a42",
+      "name": "Write Log (Replies)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1392,
+        768
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "<Response></Response>",
+        "options": {
+          "responseCode": 500,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/xml"
+              }
+            ]
+          }
+        }
+      },
+      "id": "474e5af0-6d07-4aba-9702-b0f072a0b27d",
+      "name": "Respond 500 Consent Failed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        944,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "consent_save_failed",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ \"Opt-out/opt-in NOT stored for ***\" + String($(\"Parse Inbound SMS\").item.json.phone).slice(-4) + \" keyword=\" + $(\"Parse Inbound SMS\").item.json.keyword + \" - fix manually. \" + JSON.stringify($json.error || {}).slice(0, 200) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cecf3c8e-bb84-41f5-bcfb-7fb2fbc284a1",
+      "name": "Log Consent Save Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1168,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "hamzaking0838@gmail.com",
+        "subject": "={{ \"[No-Show Saver] \" + $json.event }}",
+        "emailType": "text",
+        "message": "={{ $json.event + \" (\" + $json.severity + \")\\n\" + $json.detail + \"\\nExecution: \" + $execution.id }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "97356058-4609-45cd-9ab6-4b5bac50465e",
+      "name": "Email Alert (Replies)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1392,
+        1056
+      ],
+      "webhookId": "ff5f12c4-a0ca-43f6-86dd-4c5b356f85ad",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "WeBXVnyAseBLjZ7m",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "bef0ad96-5bb1-424b-ac4e-c337aae3d060",
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg1",
+              "name": "dry_run",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "cfg2",
+              "name": "sms_from",
+              "value": "<__PLACEHOLDER_VALUE__Twilio sending number, e.g. a Twilio test number__>",
+              "type": "string"
+            },
+            {
+              "id": "cfg3",
+              "name": "rebook_url",
+              "value": "https://example.com/rebook",
+              "type": "string"
+            },
+            {
+              "id": "cfg4",
+              "name": "clinic_name",
+              "value": "Sample Clinic",
+              "type": "string"
+            },
+            {
+              "id": "cfg5",
+              "name": "noshow_grace_minutes",
+              "value": 30,
+              "type": "number"
+            },
+            {
+              "id": "cfg6",
+              "name": "reminder_hours_before",
+              "value": 24,
+              "type": "number"
+            },
+            {
+              "id": "cfg7",
+              "name": "clinic_timezone",
+              "value": "Asia/Karachi",
+              "type": "string"
+            },
+            {
+              "id": "cfg8",
+              "name": "ai_enabled",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "cfg9",
+              "name": "max_send_attempts",
+              "value": 3,
+              "type": "number"
+            },
+            {
+              "id": "cfg10",
+              "name": "stuck_minutes",
+              "value": 60,
+              "type": "number"
+            },
+            {
+              "id": "cfg11",
+              "name": "opt_out_footer",
+              "value": "Reply STOP to opt out.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9d8732ef-eb5c-464e-b0b2-f8a492796d62",
+      "name": "Workflow Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        272,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Appointments",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "dfe854c1-7694-4a39-a8c3-1d576c68784d",
+      "name": "Read All Appointments",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        496,
+        576
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Consent",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "367177d4-9b6a-4b8b-9109-cc0d278d4b83",
+      "name": "Read Consent List",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        720,
+        752
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Workflow Config').first().json;\nconst TZ = cfg.clinic_timezone || 'Asia/Karachi';\nconst rows = $('Read All Appointments').all().map((i) => i.json).filter((r) => r.appointment_id);\nconst consent = {};\nfor (const i of $input.all()) {\n  if (i.json && i.json.phone) consent[String(i.json.phone)] = String(i.json.consent_status || '');\n}\nconst now = Date.now();\nconst nowK = new Date(now + 5 * 3600000).toISOString().slice(0, 19) + '+05:00';\nconst graceMs = Number(cfg.noshow_grace_minutes || 30) * 60000;\nconst reminderMs = Number(cfg.reminder_hours_before || 24) * 3600000;\nconst stuckMs = Number(cfg.stuck_minutes || 60) * 60000;\nconst maxAttempts = Number(cfg.max_send_attempts || 3);\nconst dry = cfg.dry_run !== false;\nconst link = String(cfg.rebook_url || '');\nconst linkOk = /^https?:\\/\\//i.test(link);\nconst fromOk = /^\\+[1-9]\\d{7,14}$/.test(String(cfg.sms_from || ''));\nconst canSend = dry || fromOk;\nconst fmt = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });\nconst out = [];\n\nfor (const r of rows) {\n  const status = String(r.status || '').trim();\n  const t = Date.parse(String(r.appointment_datetime || ''));\n  if (isNaN(t)) continue;\n  const phone = String(r.phone || '');\n  const firstName = String(r.patient_name || '').split(' ')[0] || 'there';\n  const label = fmt.format(new Date(t)) + ' (' + TZ + ')';\n  const consentOk = String(r.consent_status || '') === 'Opted-In' && consent[phone] !== 'Opted-Out';\n  const rState = String(r.reminder_state || '').trim();\n  const bState = String(r.rebook_state || '').trim();\n  const rAtt = Number(r.reminder_attempts || 0);\n  const bAtt = Number(r.rebook_attempts || 0);\n  const checkedIn = String(r.check_in_at || '').trim() !== '';\n  const sep = link.indexOf('?') >= 0 ? '&' : '?';\n  const rebookLink = link + sep + 'ref=' + encodeURIComponent(String(r.appointment_id));\n\n  const base = {\n    appointment_id: String(r.appointment_id),\n    patient_name: String(r.patient_name || ''),\n    first_name: firstName,\n    phone,\n    appointment_datetime: String(r.appointment_datetime || ''),\n    appointment_label: label,\n    status,\n    consent_ok: consentOk,\n    dry_run: dry,\n    ai_enabled: cfg.ai_enabled !== false,\n    sms_from: cfg.sms_from,\n    clinic_name: cfg.clinic_name,\n    opt_out_footer: cfg.opt_out_footer,\n    max_send_attempts: maxAttempts,\n    now_iso: nowK,\n  };\n  const noText = 'Never mention health conditions, treatments or diagnoses. Do not add opt-out wording; it is added automatically.';\n\n  const lastUpd = Date.parse(String(r.last_updated || ''));\n  const stuck = (rState === 'Sending' || bState === 'Sending') && !isNaN(lastUpd) && now - lastUpd > stuckMs;\n\n  if (stuck) {\n    out.push({ json: Object.assign({}, base, { action: 'review' }) });\n  } else if (status === 'Scheduled' && !checkedIn && !r.reminder_sent_at && consentOk && canSend && t > now && t - now <= reminderMs && (rState === '' || rState.toLowerCase() === 'blank' || (rState === 'Failed' && rAtt < maxAttempts))) {\n    out.push({ json: Object.assign({}, base, {\n      action: 'reminder',\n      template_message: 'Hi ' + firstName + ', this is a reminder of your appointment at ' + cfg.clinic_name + ' on ' + label + '. Please call us if you need to reschedule.',\n      rebook_link: '',\n      ai_prompt: 'Write one short, friendly SMS (under 280 characters, plain text, no emojis) from ' + cfg.clinic_name + ' to a patient named ' + firstName + ' reminding them of their appointment on ' + label + '. Do not include any links. ' + noText,\n    }) });\n  } else if ((status === 'Scheduled' || status === 'Reminded') && !checkedIn && now > t + graceMs) {\n    out.push({ json: Object.assign({}, base, { action: 'noshow' }) });\n  } else if ((status === 'Cancelled' || status === 'No-Show') && consentOk && canSend && linkOk && !r.rebook_sent_at && (bState === '' || (bState === 'Failed' && bAtt < maxAttempts))) {\n    const missed = status === 'No-Show';\n    out.push({ json: Object.assign({}, base, {\n      action: 'rebook',\n      template_message: 'Hi ' + firstName + ', ' + (missed ? 'we missed you at ' + cfg.clinic_name + ' on ' + label + '.' : 'your appointment at ' + cfg.clinic_name + ' on ' + label + ' was cancelled.') + ' You can book a new time here: ' + rebookLink,\n      rebook_link: rebookLink,\n      ai_prompt: 'Write one short, friendly SMS (under 280 characters, plain text, no emojis) from ' + cfg.clinic_name + ' to a patient named ' + firstName + (missed ? ' saying we are sorry we missed them on ' : ' confirming their appointment on ') + label + (missed ? '' : ' was cancelled') + ' and inviting them to rebook. Include exactly this booking link: ' + rebookLink + ' ' + noText,\n    }) });\n  }\n}\n\nreturn out;"
+      },
+      "id": "84b39877-ef76-4c84-843b-804700987d90",
+      "name": "Classify Appointments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Appointments"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "appointment_id",
+              "lookupValue": "={{ $json.appointment_id }}"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "id": "2e719b2b-440e-4e05-9adf-ef1364b15129",
+      "name": "Re-read Live Row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        944,
+        576
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const row = $json;\nconst id = String(row.appointment_id || '');\nconst hit = $('Classify Appointments').all().find((i) => i.json.appointment_id === id);\nif (!hit) {\n  return { json: { route: 'skip', eligible: false, action: 'none', appointment_id: id, severity: 'info', reason: 'Row no longer matches any sweep decision' } };\n}\nconst c = hit.json;\nconst status = String(row.status || '').trim();\nconst checkedIn = String(row.check_in_at || '').trim() !== '';\nconst consentOk = String(row.consent_status || '') === 'Opted-In' && c.consent_ok === true;\nconst rState = String(row.reminder_state || '');\nconst bState = String(row.rebook_state || '');\nconst rAtt = Number(row.reminder_attempts || 0);\nconst bAtt = Number(row.rebook_attempts || 0);\nconst max = Number(c.max_send_attempts || 3);\nlet eligible = false;\nlet reason = '';\nlet severity = 'info';\n\nlet route = 'skip';\nif (c.action === 'review') {\n  if (rState === 'Sending' || bState === 'Sending') {\n    route = 'review';\n    reason = 'SMS stuck in Sending (it may have been delivered). Not retried automatically - check Twilio logs, then fix the row by hand.';\n    severity = 'error';\n  } else {\n    reason = 'Review skipped: row already resolved';\n  }\n} else if (c.action === 'reminder') {\n  if (status !== 'Scheduled') reason = 'Reminder blocked: live status is ' + status;\n  else if (checkedIn) reason = 'Reminder blocked: patient already checked in';\n  else if (!consentOk) reason = 'Reminder blocked: no SMS consent';\n  else if (row.reminder_sent_at || !(rState === '' || (rState === 'Failed' && rAtt < max))) reason = 'Reminder blocked: already sent/claimed (state=' + rState + ')';\n  else eligible = true;\n} else if (c.action === 'noshow') {\n  if (!(status === 'Scheduled' || status === 'Reminded')) reason = 'No-show skipped: live status is ' + status;\n  else if (checkedIn) reason = 'No-show skipped: patient checked in at ' + row.check_in_at;\n  else eligible = true;\n} else if (c.action === 'rebook') {\n  if (!(status === 'Cancelled' || status === 'No-Show')) reason = 'Rebook blocked: live status is ' + status;\n  else if (!consentOk) reason = 'Rebook blocked: no SMS consent';\n  else if (row.rebook_sent_at || !(bState === '' || (bState === 'Failed' && bAtt < max))) reason = 'Rebook blocked: already sent/claimed (state=' + bState + ')';\n  else eligible = true;\n} else {\n  reason = 'Unknown action';\n}\n\nif (eligible) route = c.action === 'noshow' ? 'noshow' : 'send';\nreturn {\n  json: Object.assign({}, c, {\n    route,\n    eligible,\n    reason,\n    severity,\n    live_status: status,\n    reminder_state: rState,\n    reminder_attempts: rAtt,\n    rebook_state: bState,\n    rebook_attempts: bAtt,\n    reminder_sent_at: String(row.reminder_sent_at || ''),\n    rebook_sent_at: String(row.rebook_sent_at || ''),\n  }),\n};"
+      },
+      "id": "3f8d4d51-7c52-4556-9645-f50c001f521a",
+      "name": "Verify Still Eligible",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        752
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "output": "={{ ({ skip: 0, noshow: 1, send: 2, review: 3 })[$json.route] }}"
+      },
+      "id": "91cd7ff5-b627-4c4b-a5a8-5931961c115e",
+      "name": "Route Decision",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        800,
+        1088
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "={{ \"skipped_\" + $json.action }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "={{ $json.severity || \"info\" }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ $json.reason }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7affcbc5-d02b-4a75-87eb-b90d4ddd463c",
+      "name": "Log Skipped Check",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1024,
+        752
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.setZone(\"Asia/Karachi\").toISO() }}",
+            "execution_id": "={{ $execution.id }}",
+            "event": "={{ $json.event }}",
+            "severity": "={{ $json.severity }}",
+            "appointment_id": "={{ $json.appointment_id }}",
+            "detail": "={{ $json.detail }}"
+          },
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "execution_id",
+              "displayName": "execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "event",
+              "displayName": "event",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "severity",
+              "displayName": "severity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_id",
+              "displayName": "appointment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "eb087e75-d48a-42c5-8077-79165e4bcbae",
+      "name": "Write Log (Skipped)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1312,
+        752
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Appointments"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "appointment_id"
+          ],
+          "value": {
+            "appointment_id": "={{ $json.appointment_id }}",
+            "status": "No-Show",
+            "last_updated": "={{ $json.now_iso }}"
+          },
+          "schema": [
+            {
+              "id": "appointment_id",
+              "displayName": "appointment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "patient_id",
+              "displayName": "patient_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "patient_name",
+              "displayName": "patient_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_date",
+              "displayName": "appointment_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_time",
+              "displayName": "appointment_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_datetime",
+              "displayName": "appointment_datetime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "timezone",
+              "displayName": "timezone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_status",
+              "displayName": "consent_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_at",
+              "displayName": "consent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "check_in_at",
+              "displayName": "check_in_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_state",
+              "displayName": "reminder_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_attempts",
+              "displayName": "reminder_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_sent_at",
+              "displayName": "reminder_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_state",
+              "displayName": "rebook_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_attempts",
+              "displayName": "rebook_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_sent_at",
+              "displayName": "rebook_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_sms_sid",
+              "displayName": "last_sms_sid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_updated",
+              "displayName": "last_updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "2be8dc7e-a47f-4ee8-bd87-6c64a205dd1b",
+      "name": "Mark No-Show in Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1600,
+        576
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "no_show_marked",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "info",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $(\"Verify Still Eligible\").item.json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "Live re-check confirmed: not checked in, past grace period",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a5e8a328-920d-40a2-b786-fce4320baa13",
+      "name": "Log No-Show Marked",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1312,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.setZone(\"Asia/Karachi\").toISO() }}",
+            "execution_id": "={{ $execution.id }}",
+            "event": "={{ $json.event }}",
+            "severity": "={{ $json.severity }}",
+            "appointment_id": "={{ $json.appointment_id }}",
+            "detail": "={{ $json.detail }}"
+          },
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "execution_id",
+              "displayName": "execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "event",
+              "displayName": "event",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "severity",
+              "displayName": "severity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_id",
+              "displayName": "appointment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "ea57150a-a589-4384-96ef-368cf3967af7",
+      "name": "Write Log (No-Show)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1600,
+        944
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "ai",
+              "leftValue": "={{ $json.ai_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f08cd7b1-4925-415f-bd22-d88f160855bb",
+      "name": "AI Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1024,
+        1216
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "gpt-6-luna"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "={{ $json.ai_prompt }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "instructions": "You write short appointment SMS messages for a medical clinic. Plain text only, no emojis, no medical or diagnostic details, under 280 characters. Output only the message text.",
+          "maxTokens": 600
+        }
+      },
+      "id": "e1466e1e-c48c-4bd7-a25b-9e6bf3922c67",
+      "name": "Generate SMS Text (OpenAI)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        1248,
+        1136
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": null,
+          "name": "Gateway credits",
+          "__aiGatewayManaged": true
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const c = $('Verify Still Eligible').item.json;\nlet ai = '';\ntry {\n  const t = $json.output[0].content[0].text;\n  if (typeof t === 'string') ai = t.trim();\n} catch (e) {}\nconst link = String(c.rebook_link || '');\nconst urls = ai.match(/https?:\\/\\/\\S+/g) || [];\nlet ok = c.ai_enabled !== false && ai.length >= 20 && ai.length <= 320 && !/[{}<>]/.test(ai);\nif (ok && c.action === 'rebook') ok = link !== '' && ai.indexOf(link) >= 0 && urls.length === 1;\nif (ok && c.action === 'reminder') ok = urls.length === 0;\nconst body = ok ? ai : String(c.template_message || '');\nreturn {\n  json: Object.assign({}, c, {\n    message_source: ok ? 'ai' : 'template',\n    final_message: (body + ' ' + String(c.opt_out_footer || '')).trim(),\n  }),\n};"
+      },
+      "id": "c9a0e72b-4dac-4c0d-bdb5-1f1f4bbe1e08",
+      "name": "Build Final Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        1216
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "dry",
+              "leftValue": "={{ $json.dry_run }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "17d877f5-01b8-42ac-b483-d897bfa52706",
+      "name": "Dry Run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1600,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "p1",
+              "name": "event",
+              "value": "dry_run_sms_preview",
+              "type": "string"
+            },
+            {
+              "id": "p2",
+              "name": "severity",
+              "value": "info",
+              "type": "string"
+            },
+            {
+              "id": "p3",
+              "name": "appointment_id",
+              "value": "={{ $json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "p4",
+              "name": "detail",
+              "value": "={{ \"DRY RUN - nothing sent, sheet unchanged. action=\" + $json.action + \" to=***\" + String($json.phone).slice(-4) + \" source=\" + $json.message_source + \" message=\" + $json.final_message }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cc67aaaf-83cf-479b-b156-57ffb63d6a3b",
+      "name": "Dry Run SMS Preview",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1824,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.setZone(\"Asia/Karachi\").toISO() }}",
+            "execution_id": "={{ $execution.id }}",
+            "event": "={{ $json.event }}",
+            "severity": "={{ $json.severity }}",
+            "appointment_id": "={{ $json.appointment_id }}",
+            "detail": "={{ $json.detail }}"
+          },
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "execution_id",
+              "displayName": "execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "event",
+              "displayName": "event",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "severity",
+              "displayName": "severity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_id",
+              "displayName": "appointment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "796a098a-c5fb-4d75-9831-f7a9cf1e2081",
+      "name": "Write Log (Sweep)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2944,
+        1312
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Appointments"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "appointment_id"
+          ],
+          "value": {
+            "appointment_id": "={{ $json.appointment_id }}",
+            "reminder_state": "={{ $json.action === \"reminder\" ? \"Sending\" : $json.reminder_state }}",
+            "reminder_attempts": "={{ String($json.action === \"reminder\" ? Number($json.reminder_attempts) + 1 : $json.reminder_attempts) }}",
+            "rebook_state": "={{ $json.action === \"rebook\" ? \"Sending\" : $json.rebook_state }}",
+            "rebook_attempts": "={{ String($json.action === \"rebook\" ? Number($json.rebook_attempts) + 1 : $json.rebook_attempts) }}",
+            "last_updated": "={{ $json.now_iso }}"
+          },
+          "schema": [
+            {
+              "id": "appointment_id",
+              "displayName": "appointment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "patient_id",
+              "displayName": "patient_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "patient_name",
+              "displayName": "patient_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_date",
+              "displayName": "appointment_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_time",
+              "displayName": "appointment_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_datetime",
+              "displayName": "appointment_datetime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "timezone",
+              "displayName": "timezone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_status",
+              "displayName": "consent_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_at",
+              "displayName": "consent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "check_in_at",
+              "displayName": "check_in_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_state",
+              "displayName": "reminder_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_attempts",
+              "displayName": "reminder_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_sent_at",
+              "displayName": "reminder_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_state",
+              "displayName": "rebook_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_attempts",
+              "displayName": "rebook_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_sent_at",
+              "displayName": "rebook_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_sms_sid",
+              "displayName": "last_sms_sid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_updated",
+              "displayName": "last_updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "6ae4001d-6cc3-4a95-ab73-43fb1262d94c",
+      "name": "Claim Send (Mark Sending)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2048,
+        1312
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "from": "={{ $(\"Build Final Message\").item.json.sms_from }}",
+        "to": "={{ $(\"Build Final Message\").item.json.phone }}",
+        "message": "={{ $(\"Build Final Message\").item.json.final_message }}",
+        "options": {}
+      },
+      "id": "dfba33f9-6d54-4468-925f-d042f37d0ff8",
+      "name": "Send SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        1824,
+        864
+      ],
+      "notesInFlow": false,
+      "disabled": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Appointments"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "appointment_id"
+          ],
+          "value": {
+            "appointment_id": "={{ $(\"Build Final Message\").item.json.appointment_id }}",
+            "status": "={{ $(\"Build Final Message\").item.json.action === \"reminder\" ? \"Reminded\" : \"Rebooking Sent\" }}",
+            "reminder_state": "={{ $(\"Build Final Message\").item.json.action === \"reminder\" ? \"Sent\" : $(\"Build Final Message\").item.json.reminder_state }}",
+            "reminder_sent_at": "={{ $(\"Build Final Message\").item.json.action === \"reminder\" ? $(\"Build Final Message\").item.json.now_iso : $(\"Build Final Message\").item.json.reminder_sent_at }}",
+            "rebook_state": "={{ $(\"Build Final Message\").item.json.action === \"rebook\" ? \"Sent\" : $(\"Build Final Message\").item.json.rebook_state }}",
+            "rebook_sent_at": "={{ $(\"Build Final Message\").item.json.action === \"rebook\" ? $(\"Build Final Message\").item.json.now_iso : $(\"Build Final Message\").item.json.rebook_sent_at }}",
+            "last_sms_sid": "={{ $(\"Send SMS\").item.json.sid || \"\" }}",
+            "last_updated": "={{ $(\"Build Final Message\").item.json.now_iso }}"
+          },
+          "schema": [
+            {
+              "id": "appointment_id",
+              "displayName": "appointment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "patient_id",
+              "displayName": "patient_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "patient_name",
+              "displayName": "patient_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_date",
+              "displayName": "appointment_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_time",
+              "displayName": "appointment_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_datetime",
+              "displayName": "appointment_datetime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "timezone",
+              "displayName": "timezone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_status",
+              "displayName": "consent_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_at",
+              "displayName": "consent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "check_in_at",
+              "displayName": "check_in_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_state",
+              "displayName": "reminder_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_attempts",
+              "displayName": "reminder_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_sent_at",
+              "displayName": "reminder_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_state",
+              "displayName": "rebook_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_attempts",
+              "displayName": "rebook_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_sent_at",
+              "displayName": "rebook_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_sms_sid",
+              "displayName": "last_sms_sid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_updated",
+              "displayName": "last_updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "ee2190f4-3db0-4056-b8ac-9f4ee44be567",
+      "name": "Mark SMS Sent in Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2048,
+        768
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "={{ \"sms_sent_\" + $(\"Build Final Message\").item.json.action }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "info",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $(\"Build Final Message\").item.json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ \"sid=\" + ($(\"Send SMS\").item.json.sid || \"\") + \" source=\" + $(\"Build Final Message\").item.json.message_source + \" to=***\" + String($(\"Build Final Message\").item.json.phone).slice(-4) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ad0918b8-bbb7-44bf-a2a1-2cfbd7f84410",
+      "name": "Log SMS Sent",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2720,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "sms_claim_failed",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $(\"Build Final Message\").item.json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ \"Could not mark row Sending, so NO SMS was sent: \" + JSON.stringify($json.error || {}).slice(0, 250) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "60f912ec-748b-4630-8312-5fee9253ca37",
+      "name": "Log Claim Failed (SMS not sent)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2720,
+        1648
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "hamzaking0838@gmail.com",
+        "subject": "={{ \"[No-Show Saver] \" + $json.severity.toUpperCase() + \": \" + $json.event }}",
+        "emailType": "text",
+        "message": "={{ $json.event + \" (\" + $json.severity + \")\\nAppointment: \" + $json.appointment_id + \"\\n\" + $json.detail + \"\\nExecution: \" + $execution.id }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "4800feeb-9ed5-4c55-85ef-691e7d46a890",
+      "name": "Email Alert (Sweep)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2944,
+        1600
+      ],
+      "webhookId": "45cc840e-ed80-4c40-932d-52f272c528f0",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "WeBXVnyAseBLjZ7m",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Appointments"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "appointment_id"
+          ],
+          "value": {
+            "appointment_id": "={{ $(\"Build Final Message\").item.json.appointment_id }}",
+            "reminder_state": "={{ $(\"Build Final Message\").item.json.action === \"reminder\" ? (/^4\\d\\d$/.test(String($json.error?.httpCode ?? $json.error?.statusCode ?? \"\")) ? \"Failed\" : \"Review\") : $(\"Build Final Message\").item.json.reminder_state }}",
+            "rebook_state": "={{ $(\"Build Final Message\").item.json.action === \"rebook\" ? (/^4\\d\\d$/.test(String($json.error?.httpCode ?? $json.error?.statusCode ?? \"\")) ? \"Failed\" : \"Review\") : $(\"Build Final Message\").item.json.rebook_state }}",
+            "last_updated": "={{ $(\"Build Final Message\").item.json.now_iso }}"
+          },
+          "schema": [
+            {
+              "id": "appointment_id",
+              "displayName": "appointment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "patient_id",
+              "displayName": "patient_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "patient_name",
+              "displayName": "patient_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_date",
+              "displayName": "appointment_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_time",
+              "displayName": "appointment_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_datetime",
+              "displayName": "appointment_datetime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "timezone",
+              "displayName": "timezone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_status",
+              "displayName": "consent_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_at",
+              "displayName": "consent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "check_in_at",
+              "displayName": "check_in_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_state",
+              "displayName": "reminder_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_attempts",
+              "displayName": "reminder_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_sent_at",
+              "displayName": "reminder_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_state",
+              "displayName": "rebook_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_attempts",
+              "displayName": "rebook_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_sent_at",
+              "displayName": "rebook_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_sms_sid",
+              "displayName": "last_sms_sid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_updated",
+              "displayName": "last_updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "7fb65c9c-6cbc-46bb-8e33-42301cad8489",
+      "name": "Mark Send Failed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2496,
+        1456
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "sms_send_failed",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $(\"Build Final Message\").item.json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ \"Twilio error: \" + JSON.stringify($(\"Send SMS\").item.json.error || {}).slice(0, 250) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b2e521a0-6d7e-4a63-ab16-815e0169a4f8",
+      "name": "Log SMS Send Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2720,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "sms_sent_sheet_update_failed",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "critical",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $(\"Build Final Message\").item.json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ \"SMS WAS DELIVERED (sid=\" + ($(\"Send SMS\").item.json.sid || \"\") + \") but the sheet update failed. Row stays Sending, so it will NOT be resent. Fix the row by hand.\" }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fbd11421-38c7-4667-9961-d1778343d160",
+      "name": "Log Sent But Sheet Update Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2720,
+        1264
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y",
+          "mode": "list",
+          "cachedResultName": "Appointment No-Show Saver",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1v5peHxc3CNHN0FhvBlUjkqL6Tnjb5IwYxY8IjXxrF7Y/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Appointments"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "appointment_id"
+          ],
+          "value": {
+            "appointment_id": "={{ $json.appointment_id }}",
+            "reminder_state": "={{ $json.reminder_state === \"Sending\" ? \"Review\" : $json.reminder_state }}",
+            "rebook_state": "={{ $json.rebook_state === \"Sending\" ? \"Review\" : $json.rebook_state }}",
+            "last_updated": "={{ $json.now_iso }}"
+          },
+          "schema": [
+            {
+              "id": "appointment_id",
+              "displayName": "appointment_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "patient_id",
+              "displayName": "patient_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "patient_name",
+              "displayName": "patient_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_date",
+              "displayName": "appointment_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_time",
+              "displayName": "appointment_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "appointment_datetime",
+              "displayName": "appointment_datetime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "timezone",
+              "displayName": "timezone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_status",
+              "displayName": "consent_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "consent_at",
+              "displayName": "consent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "check_in_at",
+              "displayName": "check_in_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_state",
+              "displayName": "reminder_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_attempts",
+              "displayName": "reminder_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "reminder_sent_at",
+              "displayName": "reminder_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_state",
+              "displayName": "rebook_state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_attempts",
+              "displayName": "rebook_attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rebook_sent_at",
+              "displayName": "rebook_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_sms_sid",
+              "displayName": "last_sms_sid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_updated",
+              "displayName": "last_updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "cb6681b1-953e-489b-863e-4da100013fe8",
+      "name": "Mark Needs Review",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2496,
+        1840
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R6V4CIUmebJoTWXN",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "event",
+              "value": "sms_needs_review",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "severity",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "appointment_id",
+              "value": "={{ $(\"Verify Still Eligible\").item.json.appointment_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "detail",
+              "value": "={{ $(\"Verify Still Eligible\").item.json.reason }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ee991c97-e58d-4e81-915f-52eb0a447def",
+      "name": "Log Needs Review",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2720,
+        1840
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.textbee.dev/api/v1/gateway/send-sms",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "recipients",
+              "value": "={{ [$('Build Final Message').item.json.phone] }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $('Build Final Message').item.json.final_message }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1968,
+        1072
+      ],
+      "id": "5627cff0-b860-4826-9a21-909fb1f9e947",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "swXd4VxrvF8FDJQT",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "New Appointment Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Appointment": {
+      "main": [
+        [
+          {
+            "node": "Is Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid?": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 400 Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate Appointment": {
+      "main": [
+        [
+          {
+            "node": "Already Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Exists?": {
+      "main": [
+        [
+          {
+            "node": "Respond Duplicate Ignored",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Duplicate Ignored": {
+      "main": [
+        [
+          {
+            "node": "Log Duplicate Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Duplicate Appointment": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Intake)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Appointment": {
+      "main": [
+        [
+          {
+            "node": "Respond 201 Created",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 500 Save Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 201 Created": {
+      "main": [
+        [
+          {
+            "node": "Log Appointment Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Appointment Created": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Intake)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 500 Save Failed": {
+      "main": [
+        [
+          {
+            "node": "Log Appointment Save Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Appointment Save Failed": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Intake)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Alert (Intake)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 400 Invalid": {
+      "main": [
+        [
+          {
+            "node": "Log Appointment Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Appointment Rejected": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Intake)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Appointment Status Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Status Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Status Update": {
+      "main": [
+        [
+          {
+            "node": "Is Status Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Status Valid?": {
+      "main": [
+        [
+          {
+            "node": "Find Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 400 Invalid Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Appointment": {
+      "main": [
+        [
+          {
+            "node": "Appointment Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Appointment Found?": {
+      "main": [
+        [
+          {
+            "node": "Update Status in Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 404 Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Status in Sheet": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 Status Updated",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 500 Update Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 200 Status Updated": {
+      "main": [
+        [
+          {
+            "node": "Log Status Updated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Status Updated": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Status)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 500 Update Failed": {
+      "main": [
+        [
+          {
+            "node": "Log Status Update Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Status Update Failed": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Status)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Alert (Status)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 404 Not Found": {
+      "main": [
+        [
+          {
+            "node": "Log Status Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Status Not Found": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Status)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 400 Invalid Status": {
+      "main": [
+        [
+          {
+            "node": "Log Status Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Status Rejected": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Status)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SMS Reply Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Inbound SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Inbound SMS": {
+      "main": [
+        [
+          {
+            "node": "Is Opt-Out or Opt-In?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Opt-Out or Opt-In?": {
+      "main": [
+        [
+          {
+            "node": "Save Consent Change",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Consent Change": {
+      "main": [
+        [
+          {
+            "node": "Respond Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 500 Consent Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Reply": {
+      "main": [
+        [
+          {
+            "node": "Log SMS Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log SMS Reply": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Replies)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 500 Consent Failed": {
+      "main": [
+        [
+          {
+            "node": "Log Consent Save Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Consent Save Failed": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Replies)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Alert (Replies)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Workflow Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Config": {
+      "main": [
+        [
+          {
+            "node": "Read All Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read All Appointments": {
+      "main": [
+        [
+          {
+            "node": "Read Consent List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Consent List": {
+      "main": [
+        [
+          {
+            "node": "Classify Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Appointments": {
+      "main": [
+        [
+          {
+            "node": "Re-read Live Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-read Live Row": {
+      "main": [
+        [
+          {
+            "node": "Verify Still Eligible",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Still Eligible": {
+      "main": [
+        [
+          {
+            "node": "Route Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Decision": {
+      "main": [
+        [
+          {
+            "node": "Log Skipped Check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark No-Show in Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Needs Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Skipped Check": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Skipped)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark No-Show in Sheet": {
+      "main": [
+        [
+          {
+            "node": "Log No-Show Marked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log No-Show Marked": {
+      "main": [
+        [
+          {
+            "node": "Write Log (No-Show)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Generate SMS Text (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Final Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate SMS Text (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "Build Final Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Final Message": {
+      "main": [
+        [
+          {
+            "node": "Dry Run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry Run?": {
+      "main": [
+        [
+          {
+            "node": "Dry Run SMS Preview",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry Run SMS Preview": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Sweep)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Send (Mark Sending)": {
+      "main": [
+        [
+          {
+            "node": "Send SMS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Claim Failed (SMS not sent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send SMS": {
+      "main": [
+        [
+          {
+            "node": "Mark SMS Sent in Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Send Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark SMS Sent in Sheet": {
+      "main": [
+        [
+          {
+            "node": "Log SMS Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Sent But Sheet Update Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log SMS Sent": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Sweep)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Claim Failed (SMS not sent)": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Sweep)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Alert (Sweep)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Send Failed": {
+      "main": [
+        [
+          {
+            "node": "Log SMS Send Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log SMS Send Failed": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Sweep)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Alert (Sweep)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Sent But Sheet Update Failed": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Sweep)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Alert (Sweep)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Needs Review": {
+      "main": [
+        [
+          {
+            "node": "Log Needs Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Needs Review": {
+      "main": [
+        [
+          {
+            "node": "Write Log (Sweep)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Alert (Sweep)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Mark SMS Sent in Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Send Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timezone": "Asia/Karachi"
+  },
+  "versionId": "4c8c7756-733c-432d-9164-f03dbaea94f4",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "00b58249694b271887b0877c6f075053e880c7e7be3d4b1d5f1a2d0f25c307af"
+  },
+  "nodeGroups": [
+    {
+      "id": "86c5fc07-9ec9-463a-aa30-4eaa9dccf9d3",
+      "name": "Store new appointment",
+      "nodeIds": [
+        "c0fdf745-fcdc-466a-b5e6-a4c423a66274",
+        "e44a1ae4-b66e-46a8-bab8-c0a0b6306849",
+        "89d5737c-336d-4ecc-b939-8b20ce84623d",
+        "379f13cb-7266-4558-a19b-a83b51fd7bdc",
+        "8d9edc8a-81e4-497d-b2ef-6ba341445fcc",
+        "fec67ccb-b511-4869-b362-32e30bc90fcc",
+        "c5dd9c0f-fd1b-475f-870e-a84c0a2ba5f2",
+        "e9ac58d7-f3d8-4dab-9371-2a6918525c93",
+        "2c749334-8b7c-4de2-a9f9-aba4a1925f30",
+        "33b51694-54a3-4831-94b9-c8ba237961b8",
+        "9d1ecf86-3983-4ddf-b685-53e9efacd171",
+        "41e385e8-065e-4432-8b46-f10c9f325444",
+        "76dcd53d-894f-4f26-b5da-82082c77bb4f",
+        "ddc7eb28-b570-43ab-9784-64ca51df374d",
+        "1bd88135-6cf5-4a71-b201-d074273d8272"
+      ],
+      "description": "Checks the posted appointment and consent, ignores repeats, saves new ones, replies to the caller and logs the outcome"
+    },
+    {
+      "id": "cd7aecb8-36ff-4193-afca-f68ed90c22ea",
+      "name": "Apply status change",
+      "nodeIds": [
+        "bf0f53dc-0c5c-4376-899a-e6f7bb638678",
+        "324713cb-82ba-43e6-b597-b14feb590b8c",
+        "e588a4b1-4dd7-4094-bb38-37228a362280",
+        "0742ab9b-3879-4057-b8ba-fb3156b7bb63",
+        "bfcb7390-2c59-45c5-b6a1-36c87653867e",
+        "85fa1168-c62f-4b7b-a2b2-82d7bbdd908f",
+        "4c985856-4a99-49ee-97f0-68c4bba55300",
+        "5784bcae-93b9-49f6-a6f1-ca4299a267d9",
+        "96ee809e-da04-45e8-bfd0-f3854ff338c9",
+        "2c1ef4b1-2c8c-448a-9b2c-15a34457ea1e",
+        "61962637-9132-43fa-ac32-32630edcef2d",
+        "8795fb8a-37af-46b7-89ec-5f2798843d7d",
+        "7b49a762-cef0-4e93-aee5-00d54b7bee9e",
+        "4136971b-5d3e-41e8-8f5f-d4b920c569aa",
+        "e73fe1a1-7fc7-47bc-9234-16424a59f3b6"
+      ],
+      "description": "Takes a cancel, check-in or completed call, updates the appointment row, replies and logs; failures email an alert"
+    },
+    {
+      "id": "1814992f-d0b5-4ae0-8fcf-e954409f4d46",
+      "name": "Process SMS replies",
+      "nodeIds": [
+        "7643bd1d-3c92-4e1c-a878-ff5700994d00",
+        "43ad9ce9-1e09-4d4b-b165-fe49c1de6976",
+        "a612275d-91ea-4346-be9d-6607a2d69f06",
+        "474e5af0-6d07-4aba-9702-b0f072a0b27d",
+        "cecf3c8e-bb84-41f5-bcfb-7fb2fbc284a1",
+        "82d2c9d9-62c1-4e0f-a607-ff5ca2f77132",
+        "88c25154-7361-471a-aec4-6a0d46bf0b03",
+        "f52b0209-da82-4088-b5e9-754569ab5a42",
+        "97356058-4609-45cd-9ab6-4b5bac50465e"
+      ],
+      "description": "Reads patient texts such as STOP or START, stores the consent change, answers with a confirmation and logs it"
+    },
+    {
+      "id": "41cd5bb9-0134-4bcc-a183-717c1073a158",
+      "name": "Find due appointments",
+      "nodeIds": [
+        "9d8732ef-eb5c-464e-b0b2-f8a492796d62",
+        "dfe854c1-7694-4a39-a8c3-1d576c68784d",
+        "367177d4-9b6a-4b8b-9109-cc0d278d4b83",
+        "84b39877-ef76-4c84-843b-804700987d90",
+        "2e719b2b-440e-4e05-9adf-ef1364b15129",
+        "3f8d4d51-7c52-4556-9645-f50c001f521a"
+      ],
+      "description": "Every 15 minutes, lists due reminders, no-shows and rebookings, then re-checks each live row for status, check-in and consent"
+    },
+    {
+      "id": "dcb941aa-141c-47bb-9c6f-765d0cbc3a3f",
+      "name": "Act on due appointments",
+      "nodeIds": [
+        "91cd7ff5-b627-4c4b-a5a8-5931961c115e",
+        "7affcbc5-d02b-4a75-87eb-b90d4ddd463c",
+        "eb087e75-d48a-42c5-8077-79165e4bcbae",
+        "2be8dc7e-a47f-4ee8-bd87-6c64a205dd1b",
+        "a5e8a328-920d-40a2-b786-fce4320baa13",
+        "ea57150a-a589-4384-96ef-368cf3967af7",
+        "cb6681b1-953e-489b-863e-4da100013fe8",
+        "ee991c97-e58d-4e81-915f-52eb0a447def",
+        "f08cd7b1-4925-415f-bd22-d88f160855bb",
+        "e1466e1e-c48c-4bd7-a25b-9e6bf3922c67",
+        "c9a0e72b-4dac-4c0d-bdb5-1f1f4bbe1e08",
+        "17d877f5-01b8-42ac-b483-d897bfa52706",
+        "cc67aaaf-83cf-479b-b156-57ffb63d6a3b",
+        "6ae4001d-6cc3-4a95-ab73-43fb1262d94c",
+        "dfba33f9-6d54-4468-925f-d042f37d0ff8",
+        "ee2190f4-3db0-4056-b8ac-9f4ee44be567",
+        "7fb65c9c-6cbc-46bb-8e33-42301cad8489",
+        "ad0918b8-bbb7-44bf-a2a1-2cfbd7f84410",
+        "60f912ec-748b-4630-8312-5fee9253ca37",
+        "b2e521a0-6d7e-4a63-ab16-815e0169a4f8",
+        "fbd11421-38c7-4667-9961-d1778343d160",
+        "796a098a-c5fb-4d75-9831-f7a9cf1e2081",
+        "4800feeb-9ed5-4c55-85ef-691e7d46a890",
+        "5627cff0-b860-4826-9a21-909fb1f9e947"
+      ],
+      "description": "Marks verified no-shows, drafts SMS with AI or a fixed template, previews it in dry run or sends it once, then logs and alerts"
+    }
+  ],
+  "id": "0AAM7RPS0E6OUAVR",
+  "tags": []
+}
