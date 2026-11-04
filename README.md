@@ -1,5 +1,9 @@
 # Appointment No-Show Saver
 
+## Project Demo Video
+
+**Loom Demo:** https://www.loom.com/share/71970b77497248e18686d802a1d7b2ab
+
 ## Project Overview
 Appointment No-Show Saver is an n8n automation project designed to reduce missed appointments through automated reminders, appointment status updates, consent management, and rebooking workflows.
 
@@ -48,11 +52,10 @@ The following tests were completed:
 ## Configuration
 Use environment variables or n8n credentials for API keys and sensitive information. Never upload private API keys or passwords to GitHub.
 
-## Demo Video
-Loom demo link: Add your Loom video link here.
-
 ## Repository
 GitHub: https://github.com/hamzaking0838/taw-n8n-appointment-no-show-saver
 
 ## Project Status
 Project 1 – Appointment No-Show Saver.
+
+Demo video and project repository links are included above.
